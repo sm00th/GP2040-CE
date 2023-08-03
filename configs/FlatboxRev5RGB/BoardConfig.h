@@ -177,6 +177,12 @@
 
 #define HAS_I2C_DISPLAY 0
 
+// PS4 Auth Passthrough
+#define HAS_AUTH_PASSTHROUGH 0
+#define AUTH_PASSTHROUGH_UART_TX -1
+#define AUTH_PASSTHROUGH_UART_RX -1
+#define AUTH_PASSTHROUGH_UART_BAUDRATE 0
+
 
 // The default `SPLASH_MODE` is `NOSPLASH`.
 // There are four options for `SPLASH_MODE` currently:
