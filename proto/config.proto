@@ -141,6 +141,15 @@ message DisplayOptions
 	optional int32 displaySaverTimeout = 17;
 }
 
+message UARTOptions
+{
+	optional bool   enabled = 1;
+
+	optional int32  txPin = 2;
+	optional int32  rxPin = 3;
+	optional uint32 baudRate = 4;
+}
+
 message LEDOptions
 {
 	optional int32 dataPin = 1;
@@ -465,4 +474,5 @@ message Config
 	optional AnimationOptions_Proto animationOptions = 8;
 	optional AddonOptions addonOptions = 9;
 	optional ForcedSetupOptions forcedSetupOptions = 10;
+	optional UARTOptions uartOptions = 11;
 }

@@ -193,6 +193,12 @@ void ConfigUtils::initUnsetPropertiesWithDefaults(Config& config)
     INIT_UNSET_PROPERTY(config.keyboardMapping, keyButtonA1, KEY_BUTTON_A1);
     INIT_UNSET_PROPERTY(config.keyboardMapping, keyButtonA2, KEY_BUTTON_A2);
 
+    // uartOptions
+    INIT_UNSET_PROPERTY(config.uartOptions, enabled, !!HAS_AUTH_PASSTHROUGH);
+    INIT_UNSET_PROPERTY(config.uartOptions, txPin, AUTH_PASSTHROUGH_UART_TX);
+    INIT_UNSET_PROPERTY(config.uartOptions, rxPin, AUTH_PASSTHROUGH_UART_RX);
+    INIT_UNSET_PROPERTY(config.uartOptions, baudRate, AUTH_PASSTHROUGH_UART_BAUDRATE);
+
     // displayOptions
     INIT_UNSET_PROPERTY(config.displayOptions, enabled, !!HAS_I2C_DISPLAY);
     INIT_UNSET_PROPERTY(config.displayOptions, i2cBlock, (I2C_BLOCK == i2c0) ? 0 : 1);
