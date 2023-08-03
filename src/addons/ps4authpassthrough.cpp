@@ -452,7 +452,7 @@ void PS4AuthPassThroughAddon::process() {
                 lastConnectCheck = cTime;
         }
 
-	if (PS4Data::getInstance().ps4State == PS4State::nonce_ready) {
+	if (curIntStatus == CH375IntStatus::usbReady && PS4Data::getInstance().ps4State == PS4State::nonce_ready) {
                 if (!challengeSent) {
                         if (ch375SendChallenge()) {
                                 challengeSent = true;
