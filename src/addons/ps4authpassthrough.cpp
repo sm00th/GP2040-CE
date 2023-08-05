@@ -230,7 +230,7 @@ bool PS4AuthPassThroughAddon::ch375GetSignState(void)
                 .bmRequestType = 0b10100001,
                 .bRequest      = HID_REQ_CONTROL_GET_REPORT,
                 .wValue        = static_cast<uint16_t>(HID_REPORT_TYPE_FEATURE << 8 | 0xf2),
-                .wIndex        = DS4Endpoint::epControl,
+                .wIndex        = DS4Endpoint::epOut,
                 .wLength       = sizeof(state)
         };
 
