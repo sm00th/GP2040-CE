@@ -12,6 +12,8 @@
 #include "addons/pleds.h"
 #include "addons/ps4mode.h"
 #include "addons/neopicoleds.h"
+#include "addons/keyboard_host.h"
+#include "addons/pspassthrough.h"
 
 #include <iterator>
 
@@ -30,17 +32,25 @@ void GP2040Aux::setup() {
 	addons.LoadAddon(new BuzzerSpeakerAddon(), CORE1_LOOP);
 	addons.LoadAddon(new PS4ModeAddon(), CORE1_LOOP);
 
+	addons.LoadUSBAddon(new KeyboardHostAddon(), CORE1_INPUT);
+	addons.LoadUSBAddon(new PSPassthroughAddon(), CORE1_USBREPORT);
+
 	USBHostManager::getInstance().start();
 }
 
 void GP2040Aux::run() {
 	bool configMode = Storage::getInstance().GetConfigMode();
 	while (1) {
+		USBHostManager::getInstance().process();
+		addons.ProcessAddons(ADDON_PROCESS::CORE1_USBREPORT);
+
 		if (nextRuntime > getMicro()) { // fix for unsigned
 			continue;
 		}
 		
 		addons.ProcessAddons(CORE1_LOOP);	
+		addons.ProcessAddons(ADDON_PROCESS::CORE1_INPUT);
+
 		nextRuntime = getMicro() + GAMEPAD_POLL_MICRO;
 	}
 }

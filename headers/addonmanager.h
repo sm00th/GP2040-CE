@@ -11,7 +11,9 @@ enum ADDON_PROCESS {
     CORE0_INPUT,
     CORE0_USBREPORT,
     CORE1_ALWAYS,
-    CORE1_LOOP
+    CORE1_LOOP,
+    CORE1_INPUT,
+    CORE1_USBREPORT
 };
 
 struct AddonBlock {

@@ -16,11 +16,9 @@
 #include "addons/dualdirectional.h"
 #include "addons/tilt.h"
 #include "addons/extra_button.h"
-#include "addons/keyboard_host.h"
 #include "addons/i2canalog1219.h"
 #include "addons/jslider.h"
 #include "addons/playernum.h"
-#include "addons/pspassthrough.h"
 #include "addons/reverse.h"
 #include "addons/turbo.h"
 #include "addons/slider_socd.h"
@@ -65,8 +63,6 @@ void GP2040::setup() {
 	adc_init();
 
 	// Setup Add-ons
-	addons.LoadUSBAddon(new KeyboardHostAddon(), CORE0_INPUT);
-	addons.LoadUSBAddon(new PSPassthroughAddon(), CORE0_USBREPORT);
 	addons.LoadAddon(new AnalogInput(), CORE0_INPUT);
 	addons.LoadAddon(new BootselButtonAddon(), CORE0_INPUT);
 	addons.LoadAddon(new DualDirectionalInput(), CORE0_INPUT);
@@ -147,8 +143,6 @@ void GP2040::run() {
 
 			continue;
 		}
-
-		USBHostManager::getInstance().process();
 
 		// We can't send faster than USB can poll
 		if (nextRuntime > getMicro()) { // fix for unsigned
