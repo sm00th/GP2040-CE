@@ -179,7 +179,7 @@ FlashPROM
 ADS1219
 PlayerLEDs
 NeoPico
-OneBitDisplay
+rp2040-oled
 ArduinoJson
 rndis
 hardware_adc

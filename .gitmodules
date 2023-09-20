@@ -1,3 +1,6 @@
 [submodule "lib/pico_pio_usb"]
 	path = lib/pico_pio_usb
 	url = https://github.com/sekigon-gonnoc/Pico-PIO-USB
+[submodule "lib/rp2040-oled"]
+	path = lib/rp2040-oled
+	url = git@trac3r.net:rp2040-oled.git
