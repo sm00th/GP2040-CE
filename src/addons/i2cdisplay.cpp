@@ -7,6 +7,7 @@
 #include "GamepadState.h"
 #include "enums.h"
 #include "helper.h"
+#include "rp2040-oled.h"
 #include "storagemanager.h"
 #include "pico/stdlib.h"
 #include "bitmaps.h"
@@ -17,36 +18,28 @@
 
 bool I2CDisplayAddon::available() {
 	const DisplayOptions& options = Storage::getInstance().getDisplayOptions();
-	return options.enabled && 
-		isValidPin(options.i2cSDAPin) && 
+	return options.enabled &&
+		isValidPin(options.i2cSDAPin) &&
 		isValidPin(options.i2cSCLPin);
 }
 
 void I2CDisplayAddon::setup() {
 	const DisplayOptions& options = Storage::getInstance().getDisplayOptions();
 
-	obdI2CInit(&obd,
-	    options.size,
-		options.i2cAddress,
-		options.flip,
-		options.invert,
-		DISPLAY_USEWIRE,
-		options.i2cSDAPin,
-		options.i2cSCLPin,
-		options.i2cBlock == 0 ? i2c0 : i2c1,
-		-1,
-		options.i2cSpeed);
+	oled.size = options.size;
+	oled.addr = options.i2cAddress;
+	oled.flip = options.flip;
+	oled.invert = options.invert;
+	oled.sda_pin = options.i2cSDAPin;
+	oled.scl_pin = options.i2cSCLPin;
+	oled.i2c = options.i2cBlock == 0 ? i2c0 : i2c1;
+	oled.baudrate = options.i2cSpeed;
 
-	const int detectedDisplay = initDisplay(0);
-	if (isSH1106(detectedDisplay)) {
-		// The display is actually a SH1106 that was misdetected as a SSD1306 by OneBitDisplay.
-		// Reinitialize as SH1106.
-		initDisplay(OLED_132x64);
-	}
+	rp2040_oled_init(&oled);
 
-	obdSetContrast(&obd, 0xFF);
-	obdSetBackBuffer(&obd, ucBackBuffer);
-	clearScreen(1);
+	rp2040_oled_set_contrast(&oled, 0xff);
+	rp2040_oled_clear(&oled);
+
 	gamepad = Storage::getInstance().GetGamepad();
 	pGamepad = Storage::getInstance().GetProcessedGamepad();
 
@@ -79,7 +72,7 @@ bool I2CDisplayAddon::isDisplayPowerOff()
 	} else if (!!displaySaverTimeout && displaySaverTimer <= 0) {
 		setDisplayPower(0);
 	}
-	
+
 	if (isFocusModeEnabled) {
 		const FocusModeOptions& focusModeOptions = Storage::getInstance().getAddonOptions().focusModeOptions;
 		bool isFocusModeActive = !gpio_get(focusModeOptions.pin);
@@ -102,7 +95,7 @@ void I2CDisplayAddon::setDisplayPower(uint8_t status)
 {
 	if (displayIsPowerOn != status) {
 		displayIsPowerOn = status;
-		obdPower(&obd, status);
+		rp2040_oled_set_power(&oled, status);
 	}
 }
 
@@ -231,7 +224,7 @@ void I2CDisplayAddon::process() {
 			break;
 	}
 
-	obdDumpBuffer(&obd, NULL);
+	rp2040_oled_flush(&oled);
 }
 
 I2CDisplayAddon::DisplayMode I2CDisplayAddon::getDisplayMode() {
@@ -274,74 +267,13 @@ const DisplayOptions& I2CDisplayAddon::getDisplayOptions() {
 }
 
 int I2CDisplayAddon::initDisplay(int typeOverride) {
-	const DisplayOptions& options = Storage::getInstance().getDisplayOptions();
-	return obdI2CInit(&obd,
-	    typeOverride > 0 ? typeOverride : options.size,
-		options.i2cAddress,
-		options.flip,
-		options.invert,
-		DISPLAY_USEWIRE,
-		options.i2cSDAPin,
-		options.i2cSCLPin,
-		options.i2cBlock == 0 ? i2c0 : i2c1,
-		-1,
-		options.i2cSpeed);
-}
-
-bool I2CDisplayAddon::isSH1106(int detectedDisplay) {
-	// Only attempt detection if we think we are using a SSD1306 or if auto-detection failed.
-	if (detectedDisplay != OLED_SSD1306_3C &&
-		detectedDisplay != OLED_SSD1306_3D &&
-		detectedDisplay != OLED_NOT_FOUND) {
-		return false;
-	}
-
-	// To detect an SH1106 we make use of the fact that SH1106 supports read-modify-write operations over I2C, whereas
-	// SSD1306 does not.
-	// We perform a number of read-modify-write operations and check whether the data we read back matches the data we
-	// previously wrote. If it does we can be reasonably confident that we are using a SH1106.
-
-	// We turn the display off for the remainder of this function, we do not want users to observe the random data we
-	// are writing.
-	obdPower(&obd, false);
-
-	const uint8_t RANDOM_DATA[] = { 0xbf, 0x88, 0x13, 0x41, 0x00 };
-	uint8_t buffer[4];
-	uint8_t i = 0;
-	for (; i < sizeof(RANDOM_DATA); ++i) {
-		buffer[0] = 0x80; // one command
-		buffer[1] = 0xE0; // read-modify-write
-		buffer[2] = 0xC0; // one data
-		if (I2CWrite(&obd.bbi2c, obd.oled_addr, buffer, 3) == 0) {
-			break;
-		}
-
-		// Read two bytes back, the first byte is a dummy read and the second byte is the byte was actually want.
-		if (I2CRead(&obd.bbi2c, obd.oled_addr, buffer, 2) == 0) {
-			break;
-		}
-
-		// Check whether the byte we read is the byte we previously wrote.
-		if (i > 0 && buffer[1] != RANDOM_DATA[i - 1]) {
-			break;
-		}
-
-		// Write the current byte, we will attempt to read it in the next loop iteration.
-		buffer[0] = 0xc0; // one data
-		buffer[1] = RANDOM_DATA[i]; // data byte
-		buffer[2] = 0x80; // one command
-		buffer[3] = 0xEE; // end read-modify-write
-		if (I2CWrite(&obd.bbi2c, obd.oled_addr, buffer, 4) == 0) {
-			break;
-		}
-	}
-
-	obdPower(&obd, true);
-	return i == sizeof(RANDOM_DATA);
+	if (typeOverride > 0)
+		oled.size = typeOverride;
+	return rp2040_oled_init(&oled);
 }
 
 void I2CDisplayAddon::clearScreen(int render) {
-	obdFill(&obd, 0, render);
+	rp2040_oled_clear(&oled);
 }
 
 void I2CDisplayAddon::drawButtonLayoutLeft(ButtonLayoutParamsLeft& options)
@@ -452,20 +384,20 @@ void I2CDisplayAddon::drawButtonLayoutRight(ButtonLayoutParamsRight& options)
 		}
 }
 
-void I2CDisplayAddon::drawDiamond(int cx, int cy, int size, uint8_t colour, uint8_t filled)
+void I2CDisplayAddon::drawDiamond(int cx, int cy, int size, rp2040_oled_color_t colour, uint8_t filled)
 {
 	if (filled) {
 		int i;
 		for (i = 0; i < size; i++) {
-			obdDrawLine(&obd, cx - i, cy - size + i, cx + i, cy - size + i, colour, 0);
-			obdDrawLine(&obd, cx - i, cy + size - i, cx + i, cy + size - i, colour, 0);
+			rp2040_oled_draw_line(&oled, cx - i, cy - size + i, cx + i, cy - size + i, colour, 0);
+			rp2040_oled_draw_line(&oled, cx - i, cy + size - i, cx + i, cy + size - i, colour, 0);
 		}
-		obdDrawLine(&obd, cx - size, cy, cx + size, cy, colour, 0); // Fill in the middle
+		rp2040_oled_draw_line(&oled, cx - size, cy, cx + size, cy, colour, 0); // Fill in the middle
 	}
-	obdDrawLine(&obd, cx - size, cy, cx, cy - size, colour, 0);
-	obdDrawLine(&obd, cx, cy - size, cx + size, cy, colour, 0);
-	obdDrawLine(&obd, cx + size, cy, cx, cy + size, colour, 0);
-	obdDrawLine(&obd, cx, cy + size, cx - size, cy, colour, 0);
+	rp2040_oled_draw_line(&oled, cx - size, cy, cx, cy - size, colour, 0);
+	rp2040_oled_draw_line(&oled, cx, cy - size, cx + size, cy, colour, 0);
+	rp2040_oled_draw_line(&oled, cx + size, cy, cx, cy + size, colour, 0);
+	rp2040_oled_draw_line(&oled, cx, cy + size, cx - size, cy, colour, 0);
 }
 
 void I2CDisplayAddon::drawStickless(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -473,10 +405,14 @@ void I2CDisplayAddon::drawStickless(int startX, int startY, int buttonRadius, in
 
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
-	obdPreciseEllipse(&obd, startX, startY, buttonRadius, buttonRadius, 1, pressedLeft());
-	obdPreciseEllipse(&obd, startX + buttonMargin, startY, buttonRadius, buttonRadius, 1, pressedDown());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 1.875), startY + (buttonMargin / 2), buttonRadius, buttonRadius, 1, pressedRight());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.25), startY + buttonMargin * 1.875, buttonRadius, buttonRadius, 1, pressedUp());
+	rp2040_oled_draw_circle(&oled, startX, startY, buttonRadius,
+				OLED_COLOR_WHITE, pressedLeft(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin, startY, buttonRadius,
+				OLED_COLOR_WHITE, pressedDown(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 1.875), startY + (buttonMargin / 2), buttonRadius,
+				OLED_COLOR_WHITE, pressedRight(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.25), startY + buttonMargin * 1.875, buttonRadius,
+				OLED_COLOR_WHITE, pressedUp(), false);
 }
 
 void I2CDisplayAddon::drawWasdBox(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -484,10 +420,14 @@ void I2CDisplayAddon::drawWasdBox(int startX, int startY, int buttonRadius, int 
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// WASD
-	obdPreciseEllipse(&obd, startX, startY + buttonMargin * 0.5, buttonRadius, buttonRadius, 1, pressedLeft());
-	obdPreciseEllipse(&obd, startX + buttonMargin, startY + buttonMargin * 0.875, buttonRadius, buttonRadius, 1, pressedDown());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 1.5, startY - buttonMargin * 0.125, buttonRadius, buttonRadius, 1, pressedUp());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2), startY + buttonMargin * 1.25, buttonRadius, buttonRadius, 1, pressedRight());
+	rp2040_oled_draw_circle(&oled, startX, startY + buttonMargin * 0.5, buttonRadius,
+				OLED_COLOR_WHITE, pressedLeft(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin, startY + buttonMargin * 0.875, buttonRadius,
+				OLED_COLOR_WHITE, pressedDown(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 1.5, startY - buttonMargin * 0.125, buttonRadius,
+				OLED_COLOR_WHITE, pressedUp(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2), startY + buttonMargin * 1.25, buttonRadius,
+				OLED_COLOR_WHITE, pressedRight(), false);
 }
 
 void I2CDisplayAddon::drawUDLR(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -495,10 +435,14 @@ void I2CDisplayAddon::drawUDLR(int startX, int startY, int buttonRadius, int but
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// UDLR
-	obdPreciseEllipse(&obd, startX, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, pressedLeft());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 0.875), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pressedUp());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 0.875), startY + buttonMargin * 1.25, buttonRadius, buttonRadius, 1, pressedDown());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 1.625), startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, pressedRight());
+	rp2040_oled_draw_circle(&oled, startX, startY + buttonMargin / 2, buttonRadius,
+				OLED_COLOR_WHITE, pressedLeft(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 0.875), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pressedUp(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 0.875), startY + buttonMargin * 1.25, buttonRadius,
+				OLED_COLOR_WHITE, pressedDown(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 1.625), startY + buttonMargin / 2, buttonRadius,
+				OLED_COLOR_WHITE, pressedRight(), false);
 }
 
 void I2CDisplayAddon::drawArcadeStick(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -506,30 +450,40 @@ void I2CDisplayAddon::drawArcadeStick(int startX, int startY, int buttonRadius, 
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// Stick
-	obdPreciseEllipse(&obd, startX + (buttonMargin / 2), startY + (buttonMargin / 2), buttonRadius * 1.25, buttonRadius * 1.25, 1, 0);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 2), startY + (buttonMargin / 2), buttonRadius * 1.25,
+				OLED_COLOR_WHITE, false, false);
 
 	if (pressedUp()) {
 		if (pressedLeft()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 5), startY + (buttonMargin / 5), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 5), startY + (buttonMargin / 5), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else if (pressedRight()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin * 0.875), startY + (buttonMargin / 5), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 0.875), startY + (buttonMargin / 5), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 2), startY, buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 2), startY, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		}
 	} else if (pressedDown()) {
 		if (pressedLeft()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 5), startY + (buttonMargin * 0.875), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 5), startY + (buttonMargin * 0.875), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else if (pressedRight()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin * 0.875), startY + (buttonMargin * 0.875), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 0.875), startY + (buttonMargin * 0.875), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else {
-			obdPreciseEllipse(&obd, startX + buttonMargin / 2, startY + buttonMargin, buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + buttonMargin / 2, startY + buttonMargin, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		}
 	} else if (pressedLeft()) {
-		obdPreciseEllipse(&obd, startX, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX, startY + buttonMargin / 2, buttonRadius,
+					OLED_COLOR_WHITE, true, false);
 	} else if (pressedRight()) {
-		obdPreciseEllipse(&obd, startX + buttonMargin, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX + buttonMargin, startY + buttonMargin / 2, buttonRadius,
+					OLED_COLOR_WHITE, true, false);
 	} else {
-		obdPreciseEllipse(&obd, startX + buttonMargin / 2, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX + buttonMargin / 2, startY + buttonMargin / 2, buttonRadius,
+					OLED_COLOR_WHITE, true, false);
 	}
 }
 
@@ -538,30 +492,40 @@ void I2CDisplayAddon::drawVLXA(int startX, int startY, int buttonRadius, int but
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// Stick
-	obdPreciseEllipse(&obd, startX + (buttonMargin / 2), startY + (buttonMargin / 2), buttonRadius * 1.25, buttonRadius * 1.25, 1, 0);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 2), startY + (buttonMargin / 2), buttonRadius * 1.25,
+				OLED_COLOR_WHITE, false, false);
 
 	if (pressedUp()) {
 		if (pressedLeft()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 5), startY + (buttonMargin / 5), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 5), startY + (buttonMargin / 5), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else if (pressedRight()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin * 0.875), startY + (buttonMargin / 5), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 0.875), startY + (buttonMargin / 5), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 2), startY, buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 2), startY, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		}
 	} else if (pressedDown()) {
 		if (pressedLeft()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 5), startY + (buttonMargin * 0.875), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 5), startY + (buttonMargin * 0.875), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else if (pressedRight()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin * 0.875), startY + (buttonMargin * 0.875), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 0.875), startY + (buttonMargin * 0.875), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else {
-			obdPreciseEllipse(&obd, startX + buttonMargin / 2, startY + buttonMargin, buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + buttonMargin / 2, startY + buttonMargin, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		}
 	} else if (pressedLeft()) {
-		obdPreciseEllipse(&obd, startX, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX, startY + buttonMargin / 2, buttonRadius,
+					OLED_COLOR_WHITE, true, false);
 	} else if (pressedRight()) {
-		obdPreciseEllipse(&obd, startX + buttonMargin, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX + buttonMargin, startY + buttonMargin / 2, buttonRadius,
+					OLED_COLOR_WHITE, true, false);
 	} else {
-		obdPreciseEllipse(&obd, startX + buttonMargin / 2, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX + buttonMargin / 2, startY + buttonMargin / 2, buttonRadius,
+					OLED_COLOR_WHITE, true, false);
 	}
 }
 
@@ -570,22 +534,35 @@ void I2CDisplayAddon::drawFightboardMirrored(int startX, int startY, int buttonR
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
     const int leftMargin = startX + buttonPadding + buttonRadius;
 
-	obdPreciseEllipse(&obd, leftMargin, startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
-	obdPreciseEllipse(&obd, leftMargin + buttonMargin, startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, leftMargin + (buttonMargin*2), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, leftMargin + (buttonMargin*3), startY * 1.25, buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
+	rp2040_oled_draw_circle(&oled, leftMargin, startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
+	rp2040_oled_draw_circle(&oled, leftMargin + buttonMargin, startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, leftMargin + (buttonMargin*2), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, leftMargin + (buttonMargin*3), startY * 1.25, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
 
-	obdPreciseEllipse(&obd, leftMargin, startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedL2());
-	obdPreciseEllipse(&obd, leftMargin + buttonMargin, startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	obdPreciseEllipse(&obd, leftMargin + (buttonMargin*2), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, leftMargin + (buttonMargin*3), startY + buttonMargin * 1.25, buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
+	rp2040_oled_draw_circle(&oled, leftMargin, startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL2(), false);
+	rp2040_oled_draw_circle(&oled, leftMargin + buttonMargin, startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
+	rp2040_oled_draw_circle(&oled, leftMargin + (buttonMargin*2), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, leftMargin + (buttonMargin*3), startY + buttonMargin * 1.25, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
 
     // Extra buttons
-    obdPreciseEllipse(&obd, startX + buttonMargin * 0.5, startY + (buttonMargin * 1.5), 3, 3, 1, pGamepad->pressedL3());
-    obdPreciseEllipse(&obd, startX + buttonMargin * 1.0625, startY + (buttonMargin * 1.5), 3, 3, 1, pGamepad->pressedS1());
-    obdPreciseEllipse(&obd, startX + buttonMargin * 1.625, startY + (buttonMargin * 1.5), 3, 3, 1, pGamepad->pressedA1());
-    obdPreciseEllipse(&obd, startX + buttonMargin * 2.125+0.0625, startY + (buttonMargin * 1.5), 3, 3, 1, pGamepad->pressedS2());
-    obdPreciseEllipse(&obd, startX + buttonMargin * 2.75, startY + (buttonMargin * 1.5), 3, 3, 1, pGamepad->pressedR3());
+    rp2040_oled_draw_circle(&oled, startX + buttonMargin * 0.5, startY + (buttonMargin * 1.5), 3,
+			    OLED_COLOR_WHITE, pGamepad->pressedL3(), false);
+    rp2040_oled_draw_circle(&oled, startX + buttonMargin * 1.0625, startY + (buttonMargin * 1.5), 3,
+			    OLED_COLOR_WHITE, pGamepad->pressedS1(), false);
+    rp2040_oled_draw_circle(&oled, startX + buttonMargin * 1.625, startY + (buttonMargin * 1.5), 3,
+			    OLED_COLOR_WHITE, pGamepad->pressedA1(), false);
+    rp2040_oled_draw_circle(&oled, startX + buttonMargin * 2.125+0.0625, startY + (buttonMargin * 1.5), 3,
+			    OLED_COLOR_WHITE, pGamepad->pressedS2(), false);
+    rp2040_oled_draw_circle(&oled, startX + buttonMargin * 2.75, startY + (buttonMargin * 1.5), 3,
+			    OLED_COLOR_WHITE, pGamepad->pressedR3(), false);
 }
 
 void I2CDisplayAddon::drawTwinStickA(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -593,30 +570,40 @@ void I2CDisplayAddon::drawTwinStickA(int startX, int startY, int buttonRadius, i
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// Stick
-	obdPreciseEllipse(&obd, startX + (buttonMargin / 2), startY + (buttonMargin / 2), buttonRadius * 1.25, buttonRadius * 1.25, 1, 0);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 2), startY + (buttonMargin / 2), buttonRadius * 1.25,
+				OLED_COLOR_WHITE, false, false);
 
 	if (pressedUp()) {
 		if (pressedLeft()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 5), startY + (buttonMargin / 5), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 5), startY + (buttonMargin / 5), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else if (pressedRight()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin * 0.875), startY + (buttonMargin / 5), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 0.875), startY + (buttonMargin / 5), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 2), startY, buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 2), startY, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		}
 	} else if (pressedDown()) {
 		if (pressedLeft()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 5), startY + (buttonMargin * 0.875), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 5), startY + (buttonMargin * 0.875), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else if (pressedRight()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin * 0.875), startY + (buttonMargin * 0.875), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 0.875), startY + (buttonMargin * 0.875), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else {
-			obdPreciseEllipse(&obd, startX + buttonMargin / 2, startY + buttonMargin, buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + buttonMargin / 2, startY + buttonMargin, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		}
 	} else if (pressedLeft()) {
-		obdPreciseEllipse(&obd, startX, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX, startY + buttonMargin / 2, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 	} else if (pressedRight()) {
-		obdPreciseEllipse(&obd, startX + buttonMargin, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX + buttonMargin, startY + buttonMargin / 2, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 	} else {
-		obdPreciseEllipse(&obd, startX + buttonMargin / 2, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX + buttonMargin / 2, startY + buttonMargin / 2, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 	}
 }
 
@@ -625,30 +612,40 @@ void I2CDisplayAddon::drawTwinStickB(int startX, int startY, int buttonRadius, i
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// Stick
-	obdPreciseEllipse(&obd, startX + (buttonMargin / 2), startY + (buttonMargin / 2), buttonRadius * 1.25, buttonRadius * 1.25, 1, 0);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 2), startY + (buttonMargin / 2), buttonRadius * 1.25,
+				OLED_COLOR_WHITE, false, false);
 
 	if (pGamepad->pressedB4()) {
 		if (pGamepad->pressedB3()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 5), startY + (buttonMargin / 5), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 5), startY + (buttonMargin / 5), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else if (pGamepad->pressedB2()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin * 0.875), startY + (buttonMargin / 5), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 0.875), startY + (buttonMargin / 5), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 2), startY, buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 2), startY, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		}
 	} else if (pGamepad->pressedB1()) {
 		if (pGamepad->pressedB3()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin / 5), startY + (buttonMargin * 0.875), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin / 5), startY + (buttonMargin * 0.875), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else if (pGamepad->pressedB2()) {
-			obdPreciseEllipse(&obd, startX + (buttonMargin * 0.875), startY + (buttonMargin * 0.875), buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 0.875), startY + (buttonMargin * 0.875), buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		} else {
-			obdPreciseEllipse(&obd, startX + buttonMargin / 2, startY + buttonMargin, buttonRadius, buttonRadius, 1, 1);
+			rp2040_oled_draw_circle(&oled, startX + buttonMargin / 2, startY + buttonMargin, buttonRadius,
+						OLED_COLOR_WHITE, true, false);
 		}
 	} else if (pGamepad->pressedB3()) {
-		obdPreciseEllipse(&obd, startX, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX, startY + buttonMargin / 2, buttonRadius,
+					OLED_COLOR_WHITE, true, false);
 	} else if (pGamepad->pressedB2()) {
-		obdPreciseEllipse(&obd, startX + buttonMargin, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX + buttonMargin, startY + buttonMargin / 2, buttonRadius,
+					OLED_COLOR_WHITE, true, false);
 	} else {
-		obdPreciseEllipse(&obd, startX + buttonMargin / 2, startY + buttonMargin / 2, buttonRadius, buttonRadius, 1, 1);
+		rp2040_oled_draw_circle(&oled, startX + buttonMargin / 2, startY + buttonMargin / 2, buttonRadius,
+					OLED_COLOR_WHITE, true, false);
 	}
 }
 
@@ -657,10 +654,14 @@ void I2CDisplayAddon::drawMAMEA(int startX, int startY, int buttonSize, int butt
 	const int buttonMargin = buttonPadding + buttonSize;
 
 	// MAME
-	obdRectangle(&obd, startX, startY + buttonMargin, startX + buttonSize, startY + buttonSize + buttonMargin, 1, pressedLeft());
-	obdRectangle(&obd, startX + buttonMargin, startY + buttonMargin, startX + buttonSize + buttonMargin, startY + buttonSize + buttonMargin, 1, pressedDown());
-	obdRectangle(&obd, startX + buttonMargin, startY, startX + buttonSize + buttonMargin, startY + buttonSize, 1, pressedUp());
-	obdRectangle(&obd, startX + buttonMargin * 2, startY + buttonMargin, startX + buttonSize + buttonMargin * 2, startY + buttonSize + buttonMargin, 1, pressedRight());
+	rp2040_oled_draw_rectangle(&oled, startX, startY + buttonMargin, startX + buttonSize, startY + buttonSize + buttonMargin,
+				   OLED_COLOR_WHITE, pressedLeft(), false);
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin, startY + buttonMargin, startX + buttonSize + buttonMargin, startY + buttonSize + buttonMargin,
+				   OLED_COLOR_WHITE, pressedDown(), false);
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin, startY, startX + buttonSize + buttonMargin, startY + buttonSize,
+				   OLED_COLOR_WHITE, pressedUp(), false);
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin * 2, startY + buttonMargin, startX + buttonSize + buttonMargin * 2, startY + buttonSize + buttonMargin,
+				   OLED_COLOR_WHITE, pressedRight(), false);
 }
 
 void I2CDisplayAddon::drawMAMEB(int startX, int startY, int buttonSize, int buttonPadding)
@@ -668,13 +669,19 @@ void I2CDisplayAddon::drawMAMEB(int startX, int startY, int buttonSize, int butt
 	const int buttonMargin = buttonPadding + buttonSize;
 
 	// 6-button MAME Style
-	obdRectangle(&obd, startX, startY, startX + buttonSize, startY + buttonSize, 1, pGamepad->pressedB3());
-	obdRectangle(&obd, startX + buttonMargin, startY, startX + buttonSize + buttonMargin, startY + buttonSize, 1, pGamepad->pressedB4());
-	obdRectangle(&obd, startX + buttonMargin * 2, startY, startX + buttonSize + buttonMargin * 2, startY + buttonSize, 1, pGamepad->pressedR1());
+	rp2040_oled_draw_rectangle(&oled, startX, startY, startX + buttonSize, startY + buttonSize,
+				   OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin, startY, startX + buttonSize + buttonMargin, startY + buttonSize,
+				   OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin * 2, startY, startX + buttonSize + buttonMargin * 2, startY + buttonSize,
+				   OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
 
-	obdRectangle(&obd, startX, startY + buttonMargin, startX + buttonSize, startY + buttonMargin + buttonSize, 1, pGamepad->pressedB1());
-	obdRectangle(&obd, startX + buttonMargin, startY + buttonMargin, startX + buttonSize + buttonMargin, startY + buttonMargin + buttonSize, 1, pGamepad->pressedB2());
-	obdRectangle(&obd, startX + buttonMargin * 2, startY + buttonMargin, startX + buttonSize + buttonMargin * 2, startY + buttonMargin + buttonSize, 1, pGamepad->pressedR2());
+	rp2040_oled_draw_rectangle(&oled, startX, startY + buttonMargin, startX + buttonSize, startY + buttonMargin + buttonSize,
+				   OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin, startY + buttonMargin, startX + buttonSize + buttonMargin, startY + buttonMargin + buttonSize,
+				   OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin * 2, startY + buttonMargin, startX + buttonSize + buttonMargin * 2, startY + buttonMargin + buttonSize,
+				   OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
 
 }
 
@@ -683,10 +690,10 @@ void I2CDisplayAddon::drawKeyboardAngled(int startX, int startY, int buttonRadiu
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// MixBox
-	drawDiamond(startX, startY, buttonRadius, 1, pressedLeft());
-	drawDiamond(startX + buttonMargin / 2, startY + buttonMargin / 2, buttonRadius, 1, pressedDown());
-	drawDiamond(startX + buttonMargin, startY, buttonRadius, 1, pressedUp());
-	drawDiamond(startX + buttonMargin, startY + buttonMargin, buttonRadius, 1, pressedRight());
+	drawDiamond(startX, startY, buttonRadius, OLED_COLOR_WHITE, pressedLeft());
+	drawDiamond(startX + buttonMargin / 2, startY + buttonMargin / 2, buttonRadius, OLED_COLOR_WHITE, pressedDown());
+	drawDiamond(startX + buttonMargin, startY, buttonRadius, OLED_COLOR_WHITE, pressedUp());
+	drawDiamond(startX + buttonMargin, startY + buttonMargin, buttonRadius, OLED_COLOR_WHITE, pressedRight());
 }
 
 void I2CDisplayAddon::drawVewlix(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -694,15 +701,23 @@ void I2CDisplayAddon::drawVewlix(int startX, int startY, int buttonRadius, int b
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// 8-button Vewlix
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75), startY + (buttonMargin * 0.2), buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75), startY + (buttonMargin * 0.2), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
 
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75) - (buttonMargin / 3), startY + buttonMargin + (buttonMargin * 0.2), buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedL2());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75) - (buttonMargin / 3), startY + buttonMargin + (buttonMargin * 0.2), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL2(), false);
 }
 
 void I2CDisplayAddon::drawVLXB(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -710,39 +725,61 @@ void I2CDisplayAddon::drawVLXB(int startX, int startY, int buttonRadius, int but
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// 9-button Hori VLX
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75), startY + (buttonMargin * 0.2), buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75), startY + (buttonMargin * 0.2), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
 
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75) - (buttonMargin / 3), startY + buttonMargin + (buttonMargin * 0.2), buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedL2());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75) - (buttonMargin / 3), startY + buttonMargin + (buttonMargin * 0.2), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL2(), false);
 
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 7.4) - (buttonMargin / 3.5), startY + buttonMargin - (buttonMargin / 1.5), buttonRadius *.8, buttonRadius * .8, 1, pGamepad->pressedS2());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 7.4) - (buttonMargin / 3.5), startY + buttonMargin - (buttonMargin / 1.5), buttonRadius *.8,
+				OLED_COLOR_WHITE, pGamepad->pressedS2(), false);
 }
 
 void I2CDisplayAddon::drawFightboard(int startX, int startY, int buttonRadius, int buttonPadding)
 {
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
-	obdPreciseEllipse(&obd, (startX + buttonMargin * 3.625), startY * 1.25, buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, (startX + buttonMargin * 4.625), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, (startX + buttonMargin * 5.625), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, (startX + buttonMargin * 6.625), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
+	rp2040_oled_draw_circle(&oled, (startX + buttonMargin * 3.625), startY * 1.25, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, (startX + buttonMargin * 4.625), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, (startX + buttonMargin * 5.625), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, (startX + buttonMargin * 6.625), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
 
-	obdPreciseEllipse(&obd, (startX + buttonMargin * 3.625), startY + buttonMargin * 1.25, buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, (startX + buttonMargin * 4.625), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, (startX + buttonMargin * 5.625), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	obdPreciseEllipse(&obd, (startX + buttonMargin * 6.625), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedL2());
+	rp2040_oled_draw_circle(&oled, (startX + buttonMargin * 3.625), startY + buttonMargin * 1.25, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, (startX + buttonMargin * 4.625), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, (startX + buttonMargin * 5.625), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
+	rp2040_oled_draw_circle(&oled, (startX + buttonMargin * 6.625), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL2(), false);
 
     // Extra buttons
-	obdPreciseEllipse(&obd, startX + buttonMargin * 4.5, startY + (buttonMargin * 1.5), 3, 3, 1, pGamepad->pressedL3());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 5.0625, startY + (buttonMargin * 1.5), 3, 3, 1, pGamepad->pressedS1());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 5.625, startY + (buttonMargin * 1.5), 3, 3, 1, pGamepad->pressedA1());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 6.125+0.0625, startY + (buttonMargin * 1.5), 3, 3, 1, pGamepad->pressedS2());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 6.75, startY + (buttonMargin * 1.5), 3, 3, 1, pGamepad->pressedR3());
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 4.5, startY + (buttonMargin * 1.5), 3,
+				OLED_COLOR_WHITE, pGamepad->pressedL3(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 5.0625, startY + (buttonMargin * 1.5), 3,
+				OLED_COLOR_WHITE, pGamepad->pressedS1(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 5.625, startY + (buttonMargin * 1.5), 3,
+				OLED_COLOR_WHITE, pGamepad->pressedA1(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 6.125+0.0625, startY + (buttonMargin * 1.5), 3,
+				OLED_COLOR_WHITE, pGamepad->pressedS2(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 6.75, startY + (buttonMargin * 1.5), 3,
+				OLED_COLOR_WHITE, pGamepad->pressedR3(), false);
 }
 
 void I2CDisplayAddon::drawVewlix7(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -750,15 +787,21 @@ void I2CDisplayAddon::drawVewlix7(int startX, int startY, int buttonRadius, int 
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// 8-button Vewlix
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75), startY + (buttonMargin * 0.2), buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75), startY + (buttonMargin * 0.2), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
 
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75) - (buttonMargin / 3), startY + buttonMargin + (buttonMargin * 0.2), buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	//obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, gamepad->pressedL2());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75) - (buttonMargin / 3), startY + buttonMargin + (buttonMargin * 0.2), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75) - (buttonMargin / 3), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
 }
 
 void I2CDisplayAddon::drawSega2p(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -766,15 +809,23 @@ void I2CDisplayAddon::drawSega2p(int startX, int startY, int buttonRadius, int b
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// 8-button Sega2P
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75), startY + (buttonMargin / 3), buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75), startY, buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75), startY + (buttonMargin / 3), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75), startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
 
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75), startY + buttonMargin + (buttonMargin / 3), buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75), startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedL2());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75), startY + buttonMargin + (buttonMargin / 3), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75), startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL2(), false);
 }
 
 void I2CDisplayAddon::drawNoir8(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -782,15 +833,23 @@ void I2CDisplayAddon::drawNoir8(int startX, int startY, int buttonRadius, int bu
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// 8-button Noir8
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75), startY + (buttonMargin / 3.5), buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75), startY, buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75), startY + (buttonMargin / 3.5), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75), startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
 
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75), startY + buttonMargin + (buttonMargin / 3.5), buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75), startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedL2());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75), startY + buttonMargin + (buttonMargin / 3.5), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75), startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL2(), false);
 }
 
 void I2CDisplayAddon::drawCapcom(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -798,15 +857,23 @@ void I2CDisplayAddon::drawCapcom(int startX, int startY, int buttonRadius, int b
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// 8-button Capcom
-	obdPreciseEllipse(&obd, startX + buttonMargin * 3.25, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 4.25, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 5.25, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 6.25, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 3.25, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 4.25, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 5.25, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 6.25, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
 
-	obdPreciseEllipse(&obd, startX + buttonMargin * 3.25, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 4.25, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 5.25, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 6.25, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedL2());
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 3.25, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 4.25, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 5.25, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 6.25, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL2(), false);
 }
 
 void I2CDisplayAddon::drawCapcom6(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -814,13 +881,19 @@ void I2CDisplayAddon::drawCapcom6(int startX, int startY, int buttonRadius, int 
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// 6-button Capcom
-	obdPreciseEllipse(&obd, startX + buttonMargin * 3.25, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 4.25, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 5.25, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 3.25, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 4.25, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 5.25, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
 
-	obdPreciseEllipse(&obd, startX + buttonMargin * 3.25, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 4.25, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 5.25, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 3.25, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 4.25, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 5.25, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
 }
 
 void I2CDisplayAddon::drawSticklessButtons(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -828,15 +901,23 @@ void I2CDisplayAddon::drawSticklessButtons(int startX, int startY, int buttonRad
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// 8-button
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75), startY, buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75), startY, buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75), startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75), startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75), startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
 
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 2.75), startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 3.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 4.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	obdPreciseEllipse(&obd, startX + (buttonMargin * 5.75), startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedL2());
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 2.75), startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 3.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 4.75), startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
+	rp2040_oled_draw_circle(&oled, startX + (buttonMargin * 5.75), startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL2(), false);
 }
 
 void I2CDisplayAddon::drawWasdButtons(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -844,15 +925,23 @@ void I2CDisplayAddon::drawWasdButtons(int startX, int startY, int buttonRadius, 
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// 8-button
-	obdPreciseEllipse(&obd, startX + buttonMargin * 3.625, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 4.625, startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 5.625, startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 6.625, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 3.625, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 4.625, startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 5.625, startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 6.625, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
 
-	obdPreciseEllipse(&obd, startX + buttonMargin * 3.25, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 4.25, startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 5.25, startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 6.25, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedL2());
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 3.25, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 4.25, startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 5.25, startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 6.25, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL2(), false);
 }
 
 void I2CDisplayAddon::drawArcadeButtons(int startX, int startY, int buttonRadius, int buttonPadding)
@@ -860,15 +949,23 @@ void I2CDisplayAddon::drawArcadeButtons(int startX, int startY, int buttonRadius
 	const int buttonMargin = buttonPadding + (buttonRadius * 2);
 
 	// 8-button
-	obdPreciseEllipse(&obd, startX + buttonMargin * 3.125, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedB3());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 4.125, startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB4());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 5.125, startY - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR1());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 6.125, startY, buttonRadius, buttonRadius, 1, pGamepad->pressedL1());
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 3.125, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB3(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 4.125, startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB4(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 5.125, startY - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR1(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 6.125, startY, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL1(), false);
 
-	obdPreciseEllipse(&obd, startX + buttonMargin * 2.875, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedB1());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 3.875, startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedB2());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 4.875, startY + buttonMargin - (buttonMargin / 4), buttonRadius, buttonRadius, 1, pGamepad->pressedR2());
-	obdPreciseEllipse(&obd, startX + buttonMargin * 5.875, startY + buttonMargin, buttonRadius, buttonRadius, 1, pGamepad->pressedL2());
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 2.875, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB1(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 3.875, startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedB2(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 4.875, startY + buttonMargin - (buttonMargin / 4), buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedR2(), false);
+	rp2040_oled_draw_circle(&oled, startX + buttonMargin * 5.875, startY + buttonMargin, buttonRadius,
+				OLED_COLOR_WHITE, pGamepad->pressedL2(), false);
 }
 
 // I pulled this out of my PR, brought it back because of recent talks re: SOCD and rhythm games
@@ -878,20 +975,28 @@ void I2CDisplayAddon::drawDancepadA(int startX, int startY, int buttonSize, int 
 {
 	const int buttonMargin = buttonPadding + buttonSize;
 
-	obdRectangle(&obd, startX, startY + buttonMargin, startX + buttonSize, startY + buttonSize + buttonMargin, 1, pressedLeft());
-	obdRectangle(&obd, startX + buttonMargin, startY + buttonMargin * 2, startX + buttonSize + buttonMargin, startY + buttonSize + buttonMargin * 2, 1, pressedDown());
-	obdRectangle(&obd, startX + buttonMargin, startY, startX + buttonSize + buttonMargin, startY + buttonSize, 1, pressedUp());
-	obdRectangle(&obd, startX + buttonMargin * 2, startY + buttonMargin, startX + buttonSize + buttonMargin * 2, startY + buttonSize + buttonMargin, 1, pressedRight());
+	rp2040_oled_draw_rectangle(&oled, startX, startY + buttonMargin, startX + buttonSize, startY + buttonSize + buttonMargin,
+				   OLED_COLOR_WHITE, pressedLeft(), false);
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin, startY + buttonMargin * 2, startX + buttonSize + buttonMargin, startY + buttonSize + buttonMargin * 2,
+				   OLED_COLOR_WHITE, pressedDown(), false);
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin, startY, startX + buttonSize + buttonMargin, startY + buttonSize,
+				   OLED_COLOR_WHITE, pressedUp(), false);
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin * 2, startY + buttonMargin, startX + buttonSize + buttonMargin * 2, startY + buttonSize + buttonMargin,
+				   OLED_COLOR_WHITE, pressedRight(), false);
 }
 
 void I2CDisplayAddon::drawDancepadB(int startX, int startY, int buttonSize, int buttonPadding)
 {
 	const int buttonMargin = buttonPadding + buttonSize;
 
-	obdRectangle(&obd, startX, startY, startX + buttonSize, startY + buttonSize, 1, pGamepad->pressedB2()); // Up/Left
-	obdRectangle(&obd, startX, startY + buttonMargin * 2, startX + buttonSize, startY + buttonSize + buttonMargin * 2, 1, pGamepad->pressedB4()); // Down/Left
-	obdRectangle(&obd, startX + buttonMargin * 2, startY, startX + buttonSize + buttonMargin * 2, startY + buttonSize, 1, pGamepad->pressedB1()); // Up/Right
-	obdRectangle(&obd, startX + buttonMargin * 2, startY + buttonMargin * 2, startX + buttonSize + buttonMargin * 2, startY + buttonSize + buttonMargin * 2, 1, pGamepad->pressedB3()); // Down/Right
+	rp2040_oled_draw_rectangle(&oled, startX, startY, startX + buttonSize, startY + buttonSize,
+				   OLED_COLOR_WHITE, pGamepad->pressedB2(), false); // Up/Left
+	rp2040_oled_draw_rectangle(&oled, startX, startY + buttonMargin * 2, startX + buttonSize, startY + buttonSize + buttonMargin * 2,
+				   OLED_COLOR_WHITE, pGamepad->pressedB4(), false); // Down/Left
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin * 2, startY, startX + buttonSize + buttonMargin * 2, startY + buttonSize,
+				   OLED_COLOR_WHITE, pGamepad->pressedB1(), false); // Up/Right
+	rp2040_oled_draw_rectangle(&oled, startX + buttonMargin * 2, startY + buttonMargin * 2, startX + buttonSize + buttonMargin * 2, startY + buttonSize + buttonMargin * 2,
+				   OLED_COLOR_WHITE, pGamepad->pressedB3(), false); // Down/Right
 }
 
 void I2CDisplayAddon::drawBlankA(int startX, int startY, int buttonSize, int buttonPadding)
@@ -908,27 +1013,27 @@ void I2CDisplayAddon::drawSplashScreen(int splashMode, uint8_t * splashChoice, i
     switch (splashMode)
 	{
 		case SPLASH_MODE_STATIC: // Default, display static or custom image
-			obdDrawSprite(&obd, splashChoice, 128, 64, 16, 0, 0, 1);
+			rp2040_oled_draw_sprite_pitched(&oled, splashChoice, 0, 0, 128, 64, 16, OLED_COLOR_WHITE);
 			break;
 		case SPLASH_MODE_CLOSEIN: // Close-in. Animate the GP2040 logo
-			obdDrawSprite(&obd, (uint8_t *)bootLogoTop, 43, 39, 6, 43, std::min<int>((mils / splashSpeed) - 39, 0), 1);
-			obdDrawSprite(&obd, (uint8_t *)bootLogoBottom, 80, 21, 10, 24, std::max<int>(64 - (mils / (splashSpeed * 2)), 44), 1);
+			rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoTop, 43, std::min<int>((mils / splashSpeed) - 39, 0), 43, 39, 6, OLED_COLOR_WHITE);
+			rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoBottom, 24, std::max<int>(64 - (mils / (splashSpeed * 2)), 44), 80, 21, 10, OLED_COLOR_WHITE);
 			break;
         case SPLASH_MODE_CLOSEINCUSTOM: // Close-in on custom image or delayed close-in if custom image does not exist
-            obdDrawSprite(&obd, splashChoice, 128, 64, 16, 0, 0, 1);
+            rp2040_oled_draw_sprite_pitched(&oled, splashChoice, 0, 0, 128, 64, 16, OLED_COLOR_WHITE);
             if (mils > 2500) {
                 int milss = mils - 2500;
-                obdRectangle(&obd, 0, 0, 127, 1 + (milss / splashSpeed), 0, 1);
-                obdRectangle(&obd, 0, 63, 127, 62 - (milss / (splashSpeed * 2)), 0, 1);
-                obdDrawSprite(&obd, (uint8_t *)bootLogoTop, 43, 39, 6, 43, std::min<int>((milss / splashSpeed) - 39, 0), 1);
-                obdDrawSprite(&obd, (uint8_t *)bootLogoBottom, 80, 21, 10, 24, std::max<int>(64 - (milss / (splashSpeed * 2)), 44), 1);
+                rp2040_oled_draw_rectangle(&oled, 0, 0, 127, 1 + (milss / splashSpeed), OLED_COLOR_BLACK, true, false);
+                rp2040_oled_draw_rectangle(&oled, 0, 63, 127, 62 - (milss / (splashSpeed * 2)), OLED_COLOR_BLACK, true, false);
+                rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoTop, 43, std::min<int>((milss / splashSpeed) - 39, 0), 43, 39, 6, OLED_COLOR_WHITE);
+                rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoBottom, 24, std::max<int>(64 - (milss / (splashSpeed * 2)), 44), 80, 21, 10, OLED_COLOR_WHITE);
             }
             break;
 	}
 }
 
 void I2CDisplayAddon::drawText(int x, int y, std::string text) {
-	obdWriteString(&obd, 0, x, y, (char*)text.c_str(), FONT_6x8, 0, 0);
+	rp2040_oled_write_string(&oled, x, y, (char*)text.c_str(), text.length());
 }
 
 void I2CDisplayAddon::drawStatusBar(Gamepad * gamepad)

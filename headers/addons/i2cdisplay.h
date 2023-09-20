@@ -8,7 +8,7 @@
 
 #include <string>
 #include <hardware/i2c.h>
-#include "OneBitDisplay.h"
+#include "rp2040-oled.h"
 #include "BoardConfig.h"
 #include "gpaddon.h"
 #include "gamepad.h"
@@ -148,7 +148,6 @@ public:
 	virtual std::string name() { return I2CDisplayName; }
 private:
 	int initDisplay(int typeOverride);
-	bool isSH1106(int detectedDisplay);
 	void clearScreen(int render); // DisplayModule
 	void drawStickless(int startX, int startY, int buttonRadius, int buttonPadding);
 	void drawWasdBox(int startX, int startY, int buttonRadius, int buttonPadding);
@@ -157,7 +156,7 @@ private:
 	void drawText(int startX, int startY, std::string text);
 	void initMenu(char**);
 	//Adding my stuff here, remember to sort before PR
-	void drawDiamond(int cx, int cy, int size, uint8_t colour, uint8_t filled);
+	void drawDiamond(int cx, int cy, int size, rp2040_oled_color_t colour, uint8_t filled);
 	void drawUDLR(int startX, int startY, int buttonRadius, int buttonPadding);
 	void drawMAMEA(int startX, int startY, int buttonSize, int buttonPadding);
 	void drawMAMEB(int startX, int startY, int buttonSize, int buttonPadding);
@@ -198,7 +197,7 @@ private:
 	uint8_t displayIsPowerOn = 1;
 	uint32_t prevMillis;
 	uint8_t ucBackBuffer[1024];
-	OBDISP obd;
+	rp2040_oled_t oled;
 	std::string statusBar;
 	Gamepad* gamepad;
 	Gamepad* pGamepad;
