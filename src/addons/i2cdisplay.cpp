@@ -26,9 +26,9 @@ bool I2CDisplayAddon::available() {
 void I2CDisplayAddon::setup() {
 	const DisplayOptions& options = Storage::getInstance().getDisplayOptions();
 
-	oled.size = options.size;
+	oled.size = options.size ? static_cast<rp2040_oled_size_t>(options.size) : OLED_128x64;
 	oled.addr = options.i2cAddress;
-	oled.flip = options.flip;
+	oled.flip = options.flip ? FLIP_HORIZONTAL : FLIP_NONE;
 	oled.invert = options.invert;
 	oled.sda_pin = options.i2cSDAPin;
 	oled.scl_pin = options.i2cSCLPin;
@@ -268,7 +268,7 @@ const DisplayOptions& I2CDisplayAddon::getDisplayOptions() {
 
 int I2CDisplayAddon::initDisplay(int typeOverride) {
 	if (typeOverride > 0)
-		oled.size = typeOverride;
+		oled.size = static_cast<rp2040_oled_size_t>(typeOverride);
 	return rp2040_oled_init(&oled);
 }
 
