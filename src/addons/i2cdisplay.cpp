@@ -273,7 +273,10 @@ int I2CDisplayAddon::initDisplay(int typeOverride) {
 }
 
 void I2CDisplayAddon::clearScreen(int render) {
-	rp2040_oled_clear(&oled);
+	if (render)
+		rp2040_oled_clear(&oled);
+	else
+		rp2040_oled_clear_gdram(&oled);
 }
 
 void I2CDisplayAddon::drawButtonLayoutLeft(ButtonLayoutParamsLeft& options)
