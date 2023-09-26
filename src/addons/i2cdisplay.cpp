@@ -34,6 +34,7 @@ void I2CDisplayAddon::setup() {
 	oled.scl_pin = options.i2cSCLPin;
 	oled.i2c = options.i2cBlock == 0 ? i2c0 : i2c1;
 	oled.baudrate = options.i2cSpeed;
+	oled.use_doublebuf = true;
 
 	rp2040_oled_init(&oled);
 
@@ -1016,27 +1017,27 @@ void I2CDisplayAddon::drawSplashScreen(int splashMode, uint8_t * splashChoice, i
     switch (splashMode)
 	{
 		case SPLASH_MODE_STATIC: // Default, display static or custom image
-			rp2040_oled_draw_sprite_pitched(&oled, splashChoice, 0, 0, 128, 64, 16, OLED_COLOR_WHITE);
+			rp2040_oled_draw_sprite_pitched(&oled, splashChoice, 0, 0, 128, 64, 16, OLED_COLOR_WHITE, false);
 			break;
 		case SPLASH_MODE_CLOSEIN: // Close-in. Animate the GP2040 logo
-			rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoTop, 43, std::min<int>((mils / splashSpeed) - 39, 0), 43, 39, 6, OLED_COLOR_WHITE);
-			rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoBottom, 24, std::max<int>(64 - (mils / (splashSpeed * 2)), 44), 80, 21, 10, OLED_COLOR_WHITE);
+			rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoTop, 43, std::min<int>((mils / splashSpeed) - 39, 0), 43, 39, 6, OLED_COLOR_WHITE, false);
+			rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoBottom, 24, std::max<int>(64 - (mils / (splashSpeed * 2)), 44), 80, 21, 10, OLED_COLOR_WHITE, false);
 			break;
         case SPLASH_MODE_CLOSEINCUSTOM: // Close-in on custom image or delayed close-in if custom image does not exist
-            rp2040_oled_draw_sprite_pitched(&oled, splashChoice, 0, 0, 128, 64, 16, OLED_COLOR_WHITE);
+            rp2040_oled_draw_sprite_pitched(&oled, splashChoice, 0, 0, 128, 64, 16, OLED_COLOR_WHITE, false);
             if (mils > 2500) {
                 int milss = mils - 2500;
                 rp2040_oled_draw_rectangle(&oled, 0, 0, 127, 1 + (milss / splashSpeed), OLED_COLOR_BLACK, true, false);
                 rp2040_oled_draw_rectangle(&oled, 0, 63, 127, 62 - (milss / (splashSpeed * 2)), OLED_COLOR_BLACK, true, false);
-                rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoTop, 43, std::min<int>((milss / splashSpeed) - 39, 0), 43, 39, 6, OLED_COLOR_WHITE);
-                rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoBottom, 24, std::max<int>(64 - (milss / (splashSpeed * 2)), 44), 80, 21, 10, OLED_COLOR_WHITE);
+                rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoTop, 43, std::min<int>((milss / splashSpeed) - 39, 0), 43, 39, 6, OLED_COLOR_WHITE, false);
+                rp2040_oled_draw_sprite_pitched(&oled, (uint8_t *)bootLogoBottom, 24, std::max<int>(64 - (milss / (splashSpeed * 2)), 44), 80, 21, 10, OLED_COLOR_WHITE, false);
             }
             break;
 	}
 }
 
 void I2CDisplayAddon::drawText(int x, int y, std::string text) {
-	rp2040_oled_write_string(&oled, x, y, (char*)text.c_str(), text.length());
+	rp2040_oled_write_string(&oled, x, y, (char*)text.c_str(), text.length(), false);
 }
 
 void I2CDisplayAddon::drawStatusBar(Gamepad * gamepad)
