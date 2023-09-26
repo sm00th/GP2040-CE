@@ -3,4 +3,4 @@
 	url = https://github.com/sekigon-gonnoc/Pico-PIO-USB
 [submodule "lib/rp2040-oled"]
 	path = lib/rp2040-oled
-	url = git@trac3r.net:rp2040-oled.git
+	url = https://github.com/sm00th/rp2040-oled.git
