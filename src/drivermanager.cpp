@@ -11,6 +11,7 @@
 #include "drivers/psclassic/PSClassicDriver.h"
 #include "drivers/ps3/PS3Driver.h"
 #include "drivers/ps4/PS4Driver.h"
+#include "drivers/ps5/PS5Driver.h"
 #include "drivers/switch/SwitchDriver.h"
 #include "drivers/switchpro/SwitchProDriver.h"
 #include "drivers/xbone/XBOneDriver.h"
@@ -56,6 +57,9 @@ void DriverManager::setup(InputMode mode) {
             break;
         case INPUT_MODE_PS5:
             driver = new PS4Driver(PS4_ARCADESTICK);
+            break;
+        case INPUT_MODE_PS5_NATIVE:
+            driver = new PS5Driver();
             break;
         case INPUT_MODE_SWITCH:
             driver = new SwitchDriver();

@@ -194,6 +194,19 @@ const INPUT_MODES = [
 	{ labelKey: 'input-mode-options.nintendo-switch', value: 1, group: 'primary', },
 	{ labelKey: 'input-mode-options.nintendo-switch-pro', value: 15, group: 'primary' },
 	{ labelKey: 'input-mode-options.keyboard', value: 3, group: 'primary' },
+	{
+		labelKey: 'input-mode-options.ps5_native',
+		value: 16,
+		group: 'primary',
+		optional: ['usb'],
+		authentication: ['none', 'usb'],
+	},
+	{
+		labelKey: 'input-mode-options.xbone',
+		value: 5,
+		group: 'primary',
+		required: ['usb'],
+	},
 	{ labelKey: 'input-mode-options.generic', value: 14, group: 'primary' },
 	{ labelKey: 'input-mode-options.mdmini', value: 6, group: 'mini' },
 	{ labelKey: 'input-mode-options.neogeo', value: 7, group: 'mini' },
@@ -229,6 +242,16 @@ const INPUT_BOOT_MODES = [
 	{
 		labelKey: 'input-mode-options.nintendo-switch',
 		value: 1,
+    },
+    {
+		labelKey: 'input-mode-options.ps5_native',
+		value: 16,
+		group: 'primary',
+		optional: ['usb'],
+	},
+	{
+		labelKey: 'input-mode-options.xbone',
+		value: 5,
 		group: 'primary',
 	},
 	{ labelKey: 'input-mode-options.nintendo-switch-pro', value: 15, group: 'primary' },
@@ -1093,6 +1116,95 @@ export default function SettingsPage() {
 		);
 	};
 
+	const ps5NativeModeSpecifics = (
+		values,
+		errors,
+		setFieldValue,
+		handleChange,
+		inputMode,
+	) => {
+		return (
+			<div className="row mb-3">
+				<Row className="mb-3">
+					<Col sm={10}>{t('SettingsPage:ps5-mode-explanation-text')}</Col>
+				</Row>
+				<Row className="mb-3">
+					<Col sm={10}>
+						<Form.Check
+							label={t('SettingsPage:input-mode-extra-label')}
+							type="switch"
+							name="switchTpShareForDs4"
+							isInvalid={false}
+							checked={Boolean(values.switchTpShareForDs4)}
+							onChange={(e) => {
+								setFieldValue('switchTpShareForDs4', e.target.checked ? 1 : 0);
+							}}
+						/>
+					</Col>
+				</Row>
+				<Row className="mb-3">
+					<Col sm={3}>
+						<Form.Label>
+							{t('SettingsPage:ps4-id-mode-label')}
+							<ContextualHelpOverlay
+								title={t('SettingsPage:ps4-id-mode-label')}
+								body={
+									<Trans
+										ns="SettingsPage"
+										i18nKey="ps4-id-mode-explanation-text"
+										components={{ ul: <ul />, li: <li /> }}
+									/>
+								}
+							/>
+						</Form.Label>
+						<Form.Select
+							name="ps4ControllerIDMode"
+							className="form-select-sm"
+							value={values.ps4ControllerIDMode}
+							onChange={handleChange}
+						>
+							{PS4_ID_MODES.map((o) => (
+								<option key={`ps4-id-option-${o.value}`} value={o.value}>
+									{`${t('SettingsPage:' + o.labelKey)}`}
+								</option>
+							))}
+						</Form.Select>
+					</Col>
+				</Row>
+				{generateAuthSelection(
+					inputMode,
+					t('SettingsPage:auth-settings-label'),
+					'ps5AuthType',
+					values.ps5AuthType,
+					errors.ps5AuthType,
+					handleChange,
+				)}
+				{values.ps5AuthType === 0 && (
+					<Row className="mb-3">
+						<Col sm={10}>
+							<Trans
+								ns="SettingsPage"
+								i18nKey="ps5-mode-warning-text"
+								components={{ span: <span className="text-warning" /> }}
+							/>
+						</Col>
+					</Row>
+				)}
+				{values.ps5AuthType === 2 && (
+					<Row className="mb-3">
+						<Col sm={10}>
+							<Trans
+								ns="SettingsPage"
+								i18nKey="ps5-usb-host-mode-text"
+								components={{ span: <span className="text-info" /> }}
+							/>
+						</Col>
+					</Row>
+				)}
+			</div>
+		);
+	};
+
 	const usbOverride = (values, errors, setFieldValue, handleChange) => {
 		return (
 			<div>
@@ -1317,6 +1429,14 @@ export default function SettingsPage() {
 				);
 			case 'input-mode-options.ps5':
 				return ps5ModeSpecifics(
+					values,
+					errors,
+					setFieldValue,
+					handleChange,
+					inputMode,
+				);
+			case 'input-mode-options.ps5_native':
+				return ps5NativeModeSpecifics(
 					values,
 					errors,
 					setFieldValue,

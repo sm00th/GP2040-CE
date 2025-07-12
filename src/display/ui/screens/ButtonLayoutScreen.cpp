@@ -189,6 +189,13 @@ void ButtonLayoutScreen::generateHeader() {
                 else
                     statusBar += "   ";
                 break;
+            case INPUT_MODE_PS5_NATIVE:
+                statusBar += "PS5N";
+                if(((PS4Driver*)DriverManager::getInstance().getDriver())->getAuthSent() == true )
+                    statusBar += ":AS";
+                else
+                    statusBar += "   ";
+                break;
             case INPUT_MODE_XBONE:
                 statusBar += "XBON";
                 if(((XBOneDriver*)DriverManager::getInstance().getDriver())->getAuthSent() == true )

@@ -73,6 +73,8 @@ void BoardLedAddon::process() {
             processedGamepad = Storage::getInstance().GetProcessedGamepad();
             if(processedGamepad->getOptions().inputMode == INPUT_MODE_PS4 ||
                 processedGamepad->getOptions().inputMode == INPUT_MODE_PS5) {
+                //processedGamepad->getOptions().inputMode == INPUT_MODE_PS5 ||
+                //processedGamepad->getOptions().inputMode == INPUT_MODE_PS5_NATIVE) {
                 state = ((PS4Driver*)DriverManager::getInstance().getDriver())->getAuthSent() == true;
             }
             if (prevState != state) {

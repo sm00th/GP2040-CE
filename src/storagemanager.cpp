@@ -47,6 +47,8 @@ bool Storage::save(const bool force) {
 		PeripheralManager::getInstance().isUSBEnabled(0) &&
 		(DriverManager::getInstance().getInputMode() == INPUT_MODE_PS4 ||
 			DriverManager::getInstance().getInputMode() == INPUT_MODE_PS5) &&
+			//DriverManager::getInstance().getInputMode() == INPUT_MODE_PS5 ||
+			//DriverManager::getInstance().getInputMode() == INPUT_MODE_PS5_NATIVE) &&
 		((PS4Driver*)DriverManager::getInstance().getDriver())->getDongleAuthRequired() == true ) {
 		return false;
 	}

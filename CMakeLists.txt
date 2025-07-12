@@ -189,6 +189,7 @@ src/drivers/ps3/PS3Driver.cpp
 src/drivers/ps4/PS4Auth.cpp
 src/drivers/ps4/PS4AuthUSBListener.cpp
 src/drivers/ps4/PS4Driver.cpp
+src/drivers/ps5/PS5Driver.cpp
 src/drivers/psclassic/PSClassicDriver.cpp
 src/drivers/switch/SwitchDriver.cpp
 src/drivers/switchpro/SwitchProDriver.cpp

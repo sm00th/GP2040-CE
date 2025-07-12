@@ -16,6 +16,7 @@ export default {
 		keyboard: 'Keyboard',
 		ps4: 'PS4',
 		ps5: 'PS5',
+		ps5_native: 'PS5 (Native)',
 		neogeo: 'NEOGEO mini',
 		mdmini: 'Sega Genesis/MegaDrive Mini',
 		pcemini: 'PC Engine/Turbografx 16 Mini',
