@@ -16,6 +16,9 @@
 #include "storagemanager.h"
 #include "system.h"
 
+#define BUTTON_PRESS_MASK(values, button) (values & button->pinMask) ? button->buttonMask : 0
+#define BUTTON_PRESS_MASK_SHIFTED(values, button, shift) (values & button->pinMask) ? (button->buttonMask << shift) : 0
+
 // MUST BE DEFINED for mpgs
 uint32_t getMillis() {
 	return to_ms_since_boot(get_absolute_time());
@@ -326,48 +329,48 @@ void Gamepad::read()
 	}
 
 	state.aux = 0
-		| (values & mapButtonFn->pinMask)   ? mapButtonFn->buttonMask : 0;
+		| BUTTON_PRESS_MASK(values, mapButtonFn);
 
 	state.dpad = 0
-		| ((values & mapDpadUp->pinMask)       ? mapDpadUp->buttonMask              : 0)
-		| ((values & mapDpadDown->pinMask)     ? mapDpadDown->buttonMask            : 0)
-		| ((values & mapDpadLeft->pinMask)     ? mapDpadLeft->buttonMask            : 0)
-		| ((values & mapDpadRight->pinMask)    ? mapDpadRight->buttonMask           : 0)
-		| ((values & mapDigitalUp->pinMask)    ? (mapDigitalUp->buttonMask << 4)    : 0)
-		| ((values & mapDigitalDown->pinMask)  ? (mapDigitalDown->buttonMask << 4)  : 0)
-		| ((values & mapDigitalLeft->pinMask)  ? (mapDigitalLeft->buttonMask << 4)  : 0)
-		| ((values & mapDigitalRight->pinMask) ? (mapDigitalRight->buttonMask << 4) : 0)
+		| BUTTON_PRESS_MASK(values, mapDpadUp)
+		| BUTTON_PRESS_MASK(values, mapDpadDown)
+		| BUTTON_PRESS_MASK(values, mapDpadLeft)
+		| BUTTON_PRESS_MASK(values, mapDpadRight)
+		| BUTTON_PRESS_MASK_SHIFTED(values, mapDpadUp, 4)
+		| BUTTON_PRESS_MASK_SHIFTED(values, mapDpadDown, 4)
+		| BUTTON_PRESS_MASK_SHIFTED(values, mapDpadLeft, 4)
+		| BUTTON_PRESS_MASK_SHIFTED(values, mapDpadRight, 4)
 	;
 
 	state.buttons = 0
-		| ((values & mapButtonB1->pinMask)  ? mapButtonB1->buttonMask  : 0)
-		| ((values & mapButtonB2->pinMask)  ? mapButtonB2->buttonMask  : 0)
-		| ((values & mapButtonB3->pinMask)  ? mapButtonB3->buttonMask  : 0)
-		| ((values & mapButtonB4->pinMask)  ? mapButtonB4->buttonMask  : 0)
-		| ((values & mapButtonL1->pinMask)  ? mapButtonL1->buttonMask  : 0)
-		| ((values & mapButtonR1->pinMask)  ? mapButtonR1->buttonMask  : 0)
-		| ((values & mapButtonL2->pinMask)  ? mapButtonL2->buttonMask  : 0)
-		| ((values & mapButtonR2->pinMask)  ? mapButtonR2->buttonMask  : 0)
-		| ((values & mapButtonS1->pinMask)  ? mapButtonS1->buttonMask  : 0)
-		| ((values & mapButtonS2->pinMask)  ? mapButtonS2->buttonMask  : 0)
-		| ((values & mapButtonL3->pinMask)  ? mapButtonL3->buttonMask  : 0)
-		| ((values & mapButtonR3->pinMask)  ? mapButtonR3->buttonMask  : 0)
-		| ((values & mapButtonA1->pinMask)  ? mapButtonA1->buttonMask  : 0)
-		| ((values & mapButtonA2->pinMask)  ? mapButtonA2->buttonMask  : 0)
-		| ((values & mapButtonA3->pinMask)  ? mapButtonA3->buttonMask  : 0)
-		| ((values & mapButtonA4->pinMask)  ? mapButtonA4->buttonMask  : 0)
-		| ((values & mapButtonE1->pinMask)  ? mapButtonE1->buttonMask  : 0)
-		| ((values & mapButtonE2->pinMask)  ? mapButtonE2->buttonMask  : 0)
-		| ((values & mapButtonE3->pinMask)  ? mapButtonE3->buttonMask  : 0)
-		| ((values & mapButtonE4->pinMask)  ? mapButtonE4->buttonMask  : 0)
-		| ((values & mapButtonE5->pinMask)  ? mapButtonE5->buttonMask  : 0)
-		| ((values & mapButtonE6->pinMask)  ? mapButtonE6->buttonMask  : 0)
-		| ((values & mapButtonE7->pinMask)  ? mapButtonE7->buttonMask  : 0)
-		| ((values & mapButtonE8->pinMask)  ? mapButtonE8->buttonMask  : 0)
-		| ((values & mapButtonE9->pinMask)  ? mapButtonE9->buttonMask  : 0)
-		| ((values & mapButtonE10->pinMask) ? mapButtonE10->buttonMask : 0)
-		| ((values & mapButtonE11->pinMask) ? mapButtonE11->buttonMask : 0)
-		| ((values & mapButtonE12->pinMask) ? mapButtonE12->buttonMask : 0)
+		| BUTTON_PRESS_MASK(values, mapButtonB1)
+		| BUTTON_PRESS_MASK(values, mapButtonB2)
+		| BUTTON_PRESS_MASK(values, mapButtonB3)
+		| BUTTON_PRESS_MASK(values, mapButtonB4)
+		| BUTTON_PRESS_MASK(values, mapButtonL1)
+		| BUTTON_PRESS_MASK(values, mapButtonR1)
+		| BUTTON_PRESS_MASK(values, mapButtonL2)
+		| BUTTON_PRESS_MASK(values, mapButtonR2)
+		| BUTTON_PRESS_MASK(values, mapButtonS1)
+		| BUTTON_PRESS_MASK(values, mapButtonS2)
+		| BUTTON_PRESS_MASK(values, mapButtonL3)
+		| BUTTON_PRESS_MASK(values, mapButtonR3)
+		| BUTTON_PRESS_MASK(values, mapButtonA1)
+		| BUTTON_PRESS_MASK(values, mapButtonA2)
+		| BUTTON_PRESS_MASK(values, mapButtonA3)
+		| BUTTON_PRESS_MASK(values, mapButtonA4)
+		| BUTTON_PRESS_MASK(values, mapButtonE1)
+		| BUTTON_PRESS_MASK(values, mapButtonE2)
+		| BUTTON_PRESS_MASK(values, mapButtonE3)
+		| BUTTON_PRESS_MASK(values, mapButtonE4)
+		| BUTTON_PRESS_MASK(values, mapButtonE5)
+		| BUTTON_PRESS_MASK(values, mapButtonE6)
+		| BUTTON_PRESS_MASK(values, mapButtonE7)
+		| BUTTON_PRESS_MASK(values, mapButtonE8)
+		| BUTTON_PRESS_MASK(values, mapButtonE9)
+		| BUTTON_PRESS_MASK(values, mapButtonE10)
+		| BUTTON_PRESS_MASK(values, mapButtonE11)
+		| BUTTON_PRESS_MASK(values, mapButtonE12)
 	;
 
 	// set the effective dpad mode based on settings + overrides
