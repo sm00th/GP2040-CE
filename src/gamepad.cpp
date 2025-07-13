@@ -188,6 +188,41 @@ void Gamepad::setup()
 	hotkeys[13] = hotkeyOptions.hotkey14;
 	hotkeys[14] = hotkeyOptions.hotkey15;
 	hotkeys[15] = hotkeyOptions.hotkey16;
+
+#ifdef INPUT_TEST_MODE
+	testSequence[0] = mapDpadUp;
+	testSequence[1] = mapDpadDown;
+	testSequence[2] = mapDpadLeft;
+	testSequence[3] = mapDpadRight;
+	testSequence[4] = mapButtonB1;
+	testSequence[5] = mapButtonB2;
+	testSequence[6] = mapButtonB3;
+	testSequence[7] = mapButtonB4;
+	testSequence[8] = mapButtonL1;
+	testSequence[9] = mapButtonR1;
+	testSequence[10] = mapButtonL2;
+	testSequence[11] = mapButtonR2;
+	testSequence[12] = mapButtonS1;
+	testSequence[13] = mapButtonS2;
+	testSequence[14] = mapButtonL3;
+	testSequence[15] = mapButtonR3;
+	testSequence[16] = mapButtonA1;
+	testSequence[17] = mapButtonA2;
+	testSequence[18] = mapButtonA3;
+	testSequence[19] = mapButtonA4;
+	testSequence[20] = mapButtonE1;
+	testSequence[21] = mapButtonE2;
+	testSequence[22] = mapButtonE3;
+	testSequence[23] = mapButtonE4;
+	testSequence[24] = mapButtonE5;
+	testSequence[25] = mapButtonE6;
+	testSequence[26] = mapButtonE7;
+	testSequence[27] = mapButtonE8;
+	testSequence[28] = mapButtonE9;
+	testSequence[29] = mapButtonE10;
+	testSequence[30] = mapButtonE11;
+	testSequence[31] = mapButtonE12;
+#endif // INPUT_TEST_MODE
 }
 
 /**
@@ -328,6 +363,42 @@ void Gamepad::read()
 		joystickMid = DriverManager::getInstance().getDriver()->GetJoystickMidValue();
 	}
 
+#ifdef INPUT_TEST_MODE
+	state.buttons = 0;
+	state.dpad = 0;
+	uint32_t now = getMillis();
+	if (testSequenceIdx < 0) {
+		if (values & mapButtonS2->pinMask) {
+			state.buttons |= mapButtonS2->buttonMask;
+			if (lastTestTrigger == 0) {
+				lastTestTrigger = now;
+			} else if (now - lastTestTrigger > 3000) {
+				testSequenceIdx = 0;
+				lastTestTrigger = now;
+			}
+		} else {
+			lastTestTrigger = 0;
+		}
+	} else if (testSequenceIdx < TEST_SEQUENCE_SIZE) {
+		GamepadButtonMapping *map = testSequence[testSequenceIdx];
+
+		if (map == mapDpadUp || map == mapDpadDown || map == mapDpadLeft || map == mapDpadRight) {
+			state.dpad = map->buttonMask;
+		} else {
+			state.buttons = map->buttonMask;
+		}
+
+		if (lastTestTrigger == 0 || (now - lastTestTrigger) > 1000) {
+			lastTestTrigger = now;
+			testSequenceIdx++;
+		}
+	}
+
+	if (testSequenceIdx >= TEST_SEQUENCE_SIZE) {
+		testSequenceIdx = -1;
+		lastTestTrigger = 0;
+	}
+#else
 	state.aux = 0
 		| BUTTON_PRESS_MASK(values, mapButtonFn);
 
@@ -413,6 +484,7 @@ void Gamepad::read()
 
 	state.lt = 0;
 	state.rt = 0;
+#endif // INPUT_TEST_MODE
 }
 
 void Gamepad::hotkey() {

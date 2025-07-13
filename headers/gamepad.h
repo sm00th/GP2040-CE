@@ -14,6 +14,12 @@
 
 #include "config.pb.h"
 
+#define INPUT_TEST_MODE
+
+#ifdef INPUT_TEST_MODE
+#define TEST_SEQUENCE_SIZE 32
+#endif // INPUT_TEST_MODE
+
 // MUST BE DEFINED FOR MPG
 extern uint32_t getMillis();
 extern uint64_t getMicro();
@@ -217,6 +223,12 @@ private:
 	GamepadHotkey lastAction = HOTKEY_NONE;
 
 	absolute_time_t disableFocusModeTimeout = nil_time;
+
+#ifdef INPUT_TEST_MODE
+    GamepadButtonMapping *testSequence[TEST_SEQUENCE_SIZE];
+    int8_t testSequenceIdx = -1;
+    uint32_t lastTestTrigger = 0;
+#endif // INPUT_TEST_MODE
 };
 
 #endif
