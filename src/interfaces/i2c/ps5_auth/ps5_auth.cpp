@@ -9,7 +9,7 @@
 
 #define INIT_DATA_SIZE 3
 
-PS5Auth::PS5Auth(PeripheralI2C *i2c, uint8_t addr) : m_i2c {i2c}, m_address {addr} {
+void PS5Auth::init() {
     uint8_t unk1[32] {};
     uint8_t unk3[4] {};
     uint8_t unk2[] { 0x23, 0x45, 0x67, 0x89, 0xaa, 0xbb, 0xcc, 0xdd };
@@ -18,7 +18,19 @@ PS5Auth::PS5Auth(PeripheralI2C *i2c, uint8_t addr) : m_i2c {i2c}, m_address {add
     reset_read(PS5_AUTH_ADDR_UNK1, 32, unk1);
     write(PS5_AUTH_ADDR_UNK2, 8, unk2);
     write(0x00, 0, nullptr);
+}
+
+PS5Auth::PS5Auth(PeripheralI2C *i2c, uint8_t addr) : m_i2c {i2c}, m_address {addr} {
+    init();
 };
+
+void PS5Auth::set_address(uint8_t addr) {
+    m_address = addr;
+}
+
+void PS5Auth::set_i2c(PeripheralI2C *i2c) {
+    m_i2c = i2c;
+}
 
 int16_t PS5Auth::reset_read(uint8_t addr, uint8_t size, uint8_t *buf) {
     write(addr, 0, nullptr);

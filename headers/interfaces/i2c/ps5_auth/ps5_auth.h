@@ -24,10 +24,15 @@ enum PS5_AUTH_ADDR {
 
 class PS5Auth : public I2CDeviceBase {
     public:
+        PS5Auth() {};
         PS5Auth(PeripheralI2C *i2c, uint8_t addr);
         std::vector<uint8_t> getDeviceAddresses() const override {
             return {0x1a};
         }
+
+        void init();
+        void set_address(uint8_t addr);
+        void set_i2c(PeripheralI2C *i2c);
 
         int16_t get_signature(const uint8_t *data, uint8_t *sig);
         int16_t process_challenge(const uint8_t *challenge, uint8_t *response);

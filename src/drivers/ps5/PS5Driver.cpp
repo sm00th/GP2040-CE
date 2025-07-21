@@ -5,6 +5,7 @@
 
 #include "drivers/ps5/PS5Driver.h"
 #include "drivers/shared/driverhelper.h"
+#include "peripheralmanager.h"
 
 static constexpr uint8_t macaddr[] =  {0x9, 0xb5, 0xc8, 0x76, 0x4c, 0x3, 0x88, 0x8, 0x25, 0x0, 0x66, 0xb1, 0x3a, 0x0, 0x9e, 0x2c, 0x0, 0x0, 0x0, 0x0};
 
@@ -57,6 +58,13 @@ void PS5Driver::initialize() {
         .xfer_cb = hidd_xfer_cb,
         .sof = NULL
     };
+
+    PeripheralI2CScanResult result = PeripheralManager::getInstance().scanForI2CDevice(m_auth.getDeviceAddresses());
+    if (result.address > -1) {
+        m_auth.set_address(result.address);
+        m_auth.set_i2c(PeripheralManager::getInstance().getI2C(result.block));
+        m_auth.init();
+    }
 }
 
 void PS5Driver::initializeAux() {
