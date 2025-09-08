@@ -8,7 +8,7 @@
 
 #include "gpdriver.h"
 #include "drivers/ps5/PS5Descriptors.h"
-#include "ps5_auth/ps5_auth.h"
+#include "drivers/ps5/PS5Auth.h"
 
 typedef enum {
     PS5_GET_CALIBRATION = 0x05,
@@ -44,7 +44,7 @@ public:
     USBListener *get_usb_auth_listener() override;
 
 private:
-    PS5Auth m_auth;
+    PS5Auth *m_auth;
     uint8_t m_last_report[CFG_TUD_ENDPOINT0_SIZE] {};
     uint32_t m_last_report_timer;
     ps5_input_report m_input_report {};

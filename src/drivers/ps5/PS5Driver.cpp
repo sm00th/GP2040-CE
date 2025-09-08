@@ -3,6 +3,7 @@
  * SPDX-FileCopyrightText: Copyright (c) 2025 OpenStickCommunity (gp2040-ce.info)
  */
 
+#include <iostream>
 #include "drivers/ps5/PS5Driver.h"
 #include "drivers/shared/driverhelper.h"
 #include "peripheralmanager.h"
@@ -27,6 +28,7 @@ static const uint8_t *ps5_string_descriptors[] =
 };
 
 void PS5Driver::initialize() {
+    stdio_init_all();
     // TODO: touchpadData
     // TODO: sensorData
 
@@ -59,17 +61,30 @@ void PS5Driver::initialize() {
         .sof = NULL
     };
 
-    PeripheralI2CScanResult result = PeripheralManager::getInstance().scanForI2CDevice(m_auth.getDeviceAddresses());
-    if (result.address > -1) {
-        m_auth.set_address(result.address);
-        m_auth.set_i2c(PeripheralManager::getInstance().getI2C(result.block));
-        m_auth.init();
-    }
+    //if (result.address > -1) {
+        //m_auth.set_address(result.address);
+        //m_auth.set_i2c(PeripheralManager::getInstance().getI2C(result.block));
+    //m_auth.pre_init();
+    //}
+
+    // TODO: this is kinda stupid, be more straightforward
+    //PeripheralI2CScanResult result = PeripheralManager::getInstance().scanForI2CDevice(m_auth.getDeviceAddresses());
+    //if (result.address > -1) {
+        //m_auth.set_address(result.address);
+        //m_auth.set_i2c(PeripheralManager::getInstance().getI2C(result.block));
+        //m_auth.init();
+    //}
+    printf("ps5_native initialized\n");
 }
 
 void PS5Driver::initializeAux() {
-    // Second core
     // TODO: auth init
+    m_auth = new PS5Auth();
+    // If authentication driver is set AND auth driver can load (usb enabled, i2c enabled, keys loaded, etc.)
+    if ( m_auth != nullptr && m_auth->available() ) {
+        m_auth->initialize();
+    }
+    printf("ps5_native aux initialized\n");
 }
 
 // TODO: Most of this function is common
@@ -181,6 +196,7 @@ void PS5Driver::processAux() {
 
 uint16_t PS5Driver::get_report(uint8_t report_id, hid_report_type_t report_type,
                                uint8_t *buffer, uint16_t reqlen) {
+    printf("ps5_native %s: 0x%02x [0x%02x]\n", __func__, report_id, report_type);
     if (report_type != HID_REPORT_TYPE_FEATURE) {
         memcpy(buffer, &m_input_report, sizeof(m_input_report));
         return sizeof(m_input_report);
@@ -206,6 +222,7 @@ uint16_t PS5Driver::get_report(uint8_t report_id, hid_report_type_t report_type,
 
 void PS5Driver::set_report(uint8_t report_id, hid_report_type_t report_type,
                            uint8_t const *buffer, uint16_t bufsize) {
+    printf("ps5_native %s: 0x%02x [0x%02x]\n", __func__, report_id, report_type);
     // TODO: process set report
 }
 

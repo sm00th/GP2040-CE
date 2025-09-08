@@ -6,12 +6,25 @@
 #include "ps5_auth/ps5_auth.h"
 #include <stdlib.h>
 #include <string.h>
+#include "peripheralmanager.h"
 
 #define INIT_DATA_SIZE 3
 
+PS5Auth::PS5Auth() {
+    gpio_init(PS5_AUTH_RESET_PIN);
+    gpio_set_dir(PS5_AUTH_RESET_PIN, GPIO_OUT);
+    gpio_pull_up(PS5_AUTH_RESET_PIN);
+
+    reset_device(100);
+}
+
+void PS5Auth::reset_device(uint32_t delay) {
+    gpio_put(PS5_AUTH_RESET_PIN, 0);
+    sleep_ms(delay);
+    gpio_put(PS5_AUTH_RESET_PIN, 1);
+}
+
 void PS5Auth::init() {
-    uint8_t unk1[32] {};
-    uint8_t unk3[4] {};
     uint8_t unk2[] { 0x23, 0x45, 0x67, 0x89, 0xaa, 0xbb, 0xcc, 0xdd };
 
     reset_read(PS5_AUTH_ADDR_UNK3, 4, unk3);
@@ -20,9 +33,23 @@ void PS5Auth::init() {
     write(0x00, 0, nullptr);
 }
 
-PS5Auth::PS5Auth(PeripheralI2C *i2c, uint8_t addr) : m_i2c {i2c}, m_address {addr} {
-    init();
-};
+void PS5Auth::pre_init() {
+    //uint8_t buf[4] {};
+
+    //auto i2c = PeripheralManager::getInstance().getI2C(1);
+
+    //i2c->write(0x69, buf, 0);
+    //i2c->write(0x69, buf, 0);
+    //i2c->write(0x69, buf, 0);
+    //i2c->write(0x6b, buf, 0);
+    //i2c->write(0x6b, buf, 0);
+    //i2c->write(0x6b, buf, 0);
+    //i2c->write(m_address, buf, 1);
+    //i2c->read(m_address, buf, 4);
+    //m_inited = true;
+
+    reset_device(300);
+}
 
 void PS5Auth::set_address(uint8_t addr) {
     m_address = addr;

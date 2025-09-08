@@ -22,15 +22,18 @@ enum PS5_AUTH_ADDR {
     PS5_AUTH_ADDR_RESPONSE = 0xa8,
 };
 
+#define PS5_AUTH_RESET_PIN 22
+
 class PS5Auth : public I2CDeviceBase {
     public:
-        PS5Auth() {};
-        PS5Auth(PeripheralI2C *i2c, uint8_t addr);
+        PS5Auth();
+
         std::vector<uint8_t> getDeviceAddresses() const override {
-            return {0x1a};
+                return {0x1a};
         }
 
         void init();
+        void pre_init();
         void set_address(uint8_t addr);
         void set_i2c(PeripheralI2C *i2c);
 
@@ -41,9 +44,14 @@ class PS5Auth : public I2CDeviceBase {
         int16_t reset_read(uint8_t addr, uint8_t size, uint8_t *buf);
         int16_t read(uint8_t addr, uint8_t size, uint8_t *buf);
         int16_t write(uint8_t addr, uint8_t size, const uint8_t *data);
+        void reset_device(uint32_t delay);
 
         PeripheralI2C *m_i2c;
         uint8_t m_address;
+
+    private:
+        uint8_t unk1[32] {};
+        uint8_t unk3[4] {};
 };
 
 #endif /* _PS5_AUTH_H_ */
