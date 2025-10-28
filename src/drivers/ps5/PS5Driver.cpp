@@ -258,6 +258,8 @@ uint16_t PS5Driver::GetJoystickMidValue() {
 }
 
 USBListener *PS5Driver::get_usb_auth_listener() {
-    // TODO: return auth driver listener
+    if ( m_auth != nullptr ) {
+        return m_auth->getListener();
+    }
     return nullptr;
 }
