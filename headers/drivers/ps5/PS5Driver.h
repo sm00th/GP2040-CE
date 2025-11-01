@@ -32,7 +32,7 @@ public:
     uint16_t get_report(uint8_t report_id, hid_report_type_t report_type,
                         uint8_t *buffer, uint16_t reqlen) override;
     void set_report(uint8_t report_id, hid_report_type_t report_type,
-                    uint8_t const *buffer, uint16_t bufsize) override;
+                    const uint8_t *buffer, uint16_t bufsize) override;
     bool vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
                                 tusb_control_request_t const *request) override;
     const uint16_t *get_descriptor_string_cb(uint8_t index, uint16_t langid) override;
