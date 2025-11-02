@@ -65,6 +65,16 @@ bool PS5AuthUSBListener::host_get_report(uint8_t report_id, void *report_buf,
                               HID_REPORT_TYPE_FEATURE, report_buf, len);
 }
 
+bool PS5AuthUSBListener::send_hid_report(uint8_t report_id, const void *report_buf,
+                                         uint16_t len) {
+    if (m_state != PS5_AUTH_LISTENER_STATE_READY) {
+        return 0;
+    }
+    printf(DEBUG_PREFIX "%s: %d\n", __func__, len);
+    return tuh_hid_send_report(m_ps_dev_addr, m_ps_instance, report_id,
+                               report_buf, len);
+}
+
 bool PS5AuthUSBListener::host_set_report(uint8_t report_id, const void *report_buf,
                                          uint16_t len) {
     printf(DEBUG_PREFIX "%s: 0x%02x\n", __func__, report_id);
@@ -151,4 +161,16 @@ void PS5AuthUSBListener::get_report_complete(uint8_t dev_addr, uint8_t instance,
         m_init_item++;
         init_cache_item();
     }
+}
+
+void PS5AuthUSBListener::report_received(uint8_t dev_addr, uint8_t instance,
+                                         const uint8_t *report_buf, uint16_t len) {
+    printf(DEBUG_PREFIX "%s: 0x%02x; 0x%02x; %d\n", __func__,
+           dev_addr, instance, len);
+}
+
+void PS5AuthUSBListener::report_sent(uint8_t dev_addr, uint8_t instance,
+                                     const uint8_t *report_buf, uint16_t len) {
+    printf(DEBUG_PREFIX "%s: 0x%02x; 0x%02x; %d\n", __func__,
+           dev_addr, instance, len);
 }

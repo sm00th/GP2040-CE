@@ -84,7 +84,9 @@ void PS5Driver::initializeAux() {
 // TODO: Most of this function is common
 bool PS5Driver::process(Gamepad *gamepad) {
     bool reportSent = false;
+    uint16_t report_size = sizeof(m_input_report);
 
+    memset(&m_input_report, 0x00, report_size);
     switch (gamepad->state.dpad & GAMEPAD_MASK_DPAD)
     {
         case GAMEPAD_MASK_UP:
@@ -157,11 +159,11 @@ bool PS5Driver::process(Gamepad *gamepad) {
         tud_remote_wakeup();
 
     uint32_t now = to_ms_since_boot(get_absolute_time());
-    uint16_t report_size = sizeof(m_input_report);
 
     // TODO: last report stuff refactor?
     if (memcmp(m_last_report, &m_input_report, report_size) != 0) {
         // HID ready + report sent, copy previous report
+        m_auth->sign_hid(&m_input_report, report_size);
         if (tud_hid_ready() && tud_hid_report(0, &m_input_report, report_size) == true ) {
             memcpy(m_last_report, &m_input_report, report_size);
             reportSent = true;

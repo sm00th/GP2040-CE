@@ -16,6 +16,8 @@ public:
                         uint16_t report_len);
     void set_report(uint8_t report_id, const uint8_t *buffer,
                     uint16_t report_len);
+
+    void sign_hid(const void *report, uint16_t len);
 };
 
 #endif

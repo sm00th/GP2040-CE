@@ -29,6 +29,11 @@ void PS5Auth::set_report(uint8_t report_id, const uint8_t *buffer,
     static_cast<PS5AuthUSBListener*>(listener)->host_set_report(report_id, buffer, report_len);
 }
 
+void PS5Auth::sign_hid(const void *buffer, uint16_t report_len) {
+    printf("ps5_auth %s: %d\n", __func__, report_len);
+    static_cast<PS5AuthUSBListener*>(listener)->send_hid_report(0, buffer, report_len);
+}
+
 void PS5Auth::process() {
 }
 

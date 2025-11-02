@@ -28,9 +28,9 @@ public:
                 uint8_t subtype) override {}
     void unmount(uint8_t dev_addr) override;
     void report_received(uint8_t dev_addr, uint8_t instance,
-                         const uint8_t *report_buf, uint16_t len) override {}
+                         const uint8_t *report_buf, uint16_t len) override;
     void report_sent(uint8_t dev_addr, uint8_t instance,
-                     const uint8_t *report_buf, uint16_t len) override {}
+                     const uint8_t *report_buf, uint16_t len) override;
     void set_report_complete(uint8_t dev_addr, uint8_t instance,
                              uint8_t report_id, uint8_t report_type,
                              uint16_t len) override;
@@ -39,6 +39,7 @@ public:
                              uint16_t len) override;
     void process(); // add things to process
 
+    bool send_hid_report(uint8_t report_id, const void* report, uint16_t len);
     uint16_t get_cached_report(uint8_t report_id, void* report, uint16_t len);
     bool host_set_report(uint8_t report_id, const void* report, uint16_t len);
 
