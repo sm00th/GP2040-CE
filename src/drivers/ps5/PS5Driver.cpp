@@ -27,6 +27,7 @@ void PS5Driver::initialize() {
     // TODO: sensorData
 
     // TODO: input report init
+    memset(&m_input_report, 0x00, sizeof(m_input_report));
     m_input_report = {
         .report_id = 0x01,
         .left_stick_x = DUALSENSE_JOYSTICK_MID,
@@ -34,13 +35,6 @@ void PS5Driver::initialize() {
         .right_stick_x = DUALSENSE_JOYSTICK_MID,
         .right_stick_y = DUALSENSE_JOYSTICK_MID,
         .dpad = DUALSENSE_HAT_NOTHING,
-        .button_west = 0, .button_south = 0, .button_east = 0, .button_north = 0,
-        .button_l1 = 0, .button_r1 = 0, .button_l2 = 0, .button_r2 = 0,
-        .button_select = 0, .button_start = 0, .button_l3 = 0, .button_r3 = 0, .button_home = 0,
-        .button_touchpad = 0, .button_mute = 0,
-        .gyro = {}, .accel = {}, .sensor_timestamp = 0,
-        .points = {},
-        .status = 0,
     };
 
     class_driver = {
@@ -84,9 +78,7 @@ void PS5Driver::initializeAux() {
 // TODO: Most of this function is common
 bool PS5Driver::process(Gamepad *gamepad) {
     bool reportSent = false;
-    uint16_t report_size = sizeof(m_input_report);
 
-    memset(&m_input_report, 0x00, report_size);
     switch (gamepad->state.dpad & GAMEPAD_MASK_DPAD)
     {
         case GAMEPAD_MASK_UP:
@@ -132,7 +124,6 @@ bool PS5Driver::process(Gamepad *gamepad) {
     m_input_report.button_r3       = gamepad->pressedR3();
     m_input_report.button_home     = gamepad->pressedA1();
     m_input_report.button_touchpad = gamepad->pressedA2();
-    m_input_report.button_touchpad = gamepad->pressedA2();
     m_input_report.button_mute     = gamepad->pressedA3();
 
     m_input_report.left_stick_x = static_cast<uint8_t>(gamepad->state.lx >> 8);
@@ -159,10 +150,12 @@ bool PS5Driver::process(Gamepad *gamepad) {
         tud_remote_wakeup();
 
     uint32_t now = to_ms_since_boot(get_absolute_time());
+    uint16_t report_size = sizeof(m_input_report);
 
     // TODO: last report stuff refactor?
     if (memcmp(m_last_report, &m_input_report, report_size) != 0) {
         // HID ready + report sent, copy previous report
+        m_input_report.seq_number++;
         m_auth->sign_hid(&m_input_report, report_size);
         if (tud_hid_ready() && tud_hid_report(0, &m_input_report, report_size) == true ) {
             memcpy(m_last_report, &m_input_report, report_size);
